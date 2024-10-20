@@ -1,2 +1,2 @@
-#TASKER
-##Minimal Task management via CLI
+# TASKER
+## Minimal Task management via **CLI** 
