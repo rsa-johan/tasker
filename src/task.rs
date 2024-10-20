@@ -1,13 +1,34 @@
 use parry::Cmd;
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, u16};
 
 const LINE_SEPERATOR: &'static str = ";;";
 const WORD_SEPERATOR: &'static str = "|";
 
+#[derive(Debug)]
+struct Meta {
+    id: u16,
+    name: u16,
+    time: u16,
+    date: u16,
+    status: u16,
+}
+
+impl Meta {
+    fn new() -> Meta {
+        return Meta {
+            id: "id".len() as u16,
+            name: "name".len() as u16,
+            time: "time".len() as u16,
+            date: "date".len() as u16,
+            status: "status".len() as u16,
+        };
+    }
+}
+
 #[derive(Debug, Default)]
 struct Task {
     name: String,
-    id: u32,
+    id: u16,
     time: Option<String>,
     date: Option<String>,
     status: Option<String>,
@@ -18,6 +39,7 @@ pub struct Tasker {
     cmd: Cmd,
     command: String,
     path: String,
+    meta_path: String,
 }
 
 impl Tasker {
@@ -25,19 +47,26 @@ impl Tasker {
         let mut path: String = String::new();
         if let Ok(p_) = env::var("TASK_SPACE") {
             path = p_;
-
-            if !fs::exists(&path).unwrap() {
+            if !Path::new(&path).exists() {
                 fs::create_dir(&path)
                     .expect(format!("Unable to create a directory at {}", path).as_str());
             }
 
             path.push_str("\\main.tks");
+            let path_1 = Path::new(&path);
+            let _ = fs::File::create_new(path_1);
         }
+        let meta_path_1 = Path::new(&path).parent().unwrap().join("meta.tkconf");
+        let _ = fs::File::create_new(&meta_path_1);
+
+        let mut meta_path = env::var("TASK_SPACE").unwrap();
+        meta_path.push_str("\\meta.tkconf");
 
         Tasker {
             cmd: Cmd::new(),
             command: String::new(),
             path,
+            meta_path,
         }
     }
 
@@ -64,17 +93,17 @@ impl Tasker {
     }
 
     fn add(&self) -> Result<(), std::io::Error> {
-        let path = Path::new(&self.path);
-        fs::File::create_new(path).unwrap();
-
-        let mut content = fs::read_to_string(path)?;
+        let mut content = fs::read_to_string(&self.path)?;
         let mut task_list: Vec<Task> = Vec::new();
 
         if content.len() > 0 {
             task_list = content
                 .split(LINE_SEPERATOR)
+                .filter(|x| x.len() > 0)
                 .map(|x| Tasker::string_to_task(x))
                 .collect();
+
+            self.write_meta(&Meta::new())?;
         }
 
         let mut task = Task::default();
@@ -94,9 +123,12 @@ impl Tasker {
 
         content.push_str(&line);
         content.push_str(LINE_SEPERATOR);
-        content.push_str();
 
-        fs::write(path, content)
+        let mut meta = self.read_meta()?;
+        Tasker::task_to_meta(&task, &mut meta);
+        self.write_meta(&meta)?;
+
+        fs::write(&self.path, content)
     }
 
     fn set(&self) -> Result<(), std::io::Error> {
@@ -105,6 +137,9 @@ impl Tasker {
         let mut content = String::new();
 
         self.get_task(&mut task);
+        let mut meta = self.read_meta()?;
+        Tasker::task_to_meta(&task, &mut meta);
+        self.write_meta(&meta)?;
 
         let mut task_list = self.get_task_list()?;
         println!("Before: {:#?}", task_list);
@@ -134,18 +169,72 @@ impl Tasker {
     fn list(&self) -> Result<(), std::io::Error> {
         let path = Path::new(&self.path);
         let content = fs::read_to_string(path)?;
-        let mut display = String::from("");
+        if content.len() == 0 {
+            println!("No task added");
+            return Ok(());
+        }
+        let meta = self.read_meta()?;
+        let id_header = Tasker::format("id", meta.id);
+        let name_header = Tasker::format("name", meta.name);
+        let status_header = Tasker::format("status", meta.status);
+        let time_header = Tasker::format("time", meta.time);
+        let date_header = Tasker::format("date", meta.date);
 
-        let id_header = "id";
-        let name_header = "name";
-        let status_header = "status";
-        let time_header = "time";
-        let date_header = "date";
+        println!(
+            "{:#?}",
+            format!(
+                "{}{}{}{}{}|",
+                id_header, name_header, date_header, time_header, status_header
+            )
+        );
 
-        for line in content.split(LINE_SEPERATOR) {
-            let task = Tasker::string_to_task(line);
+        let tasks: Vec<Task> = content
+            .split(LINE_SEPERATOR)
+            .filter(|x| x.len() > 1)
+            .map(|x| Tasker::string_to_task(&x))
+            .collect();
+
+        for task in tasks {
+            let id = Tasker::format(task.id, meta.id);
+            let name = Tasker::format(task.name, meta.name);
+            let status = Tasker::format(
+                if let Some(v_) = task.status {
+                    v_
+                } else {
+                    " ".to_string()
+                },
+                meta.status,
+            );
+            let time = Tasker::format(
+                if let Some(v_) = task.time {
+                    v_
+                } else {
+                    " ".to_string()
+                },
+                meta.time,
+            );
+            let date = Tasker::format(
+                if let Some(v_) = task.date {
+                    v_
+                } else {
+                    " ".to_string()
+                },
+                meta.date,
+            );
+            println!("{}{}{}{}{}", id, name, date, time, status);
         }
 
+        Ok(())
+    }
+
+    fn read_meta(&self) -> Result<Meta, std::io::Error> {
+        let content = fs::read_to_string(&self.meta_path)?;
+        Ok(Tasker::string_to_meta(content))
+    }
+
+    fn write_meta(&self, meta: &Meta) -> Result<(), std::io::Error> {
+        let content = Tasker::meta_to_string(meta);
+        fs::write(&self.meta_path, content)?;
         Ok(())
     }
 
@@ -168,6 +257,7 @@ impl Tasker {
 
     fn get_task(&self, task: &mut Task) {
         if let Some(name) = self.cmd.get("name") {
+            println!("Name: {}", name);
             task.name = name.to_owned();
         }
         if let Some(id) = self.cmd.get("id") {
@@ -179,22 +269,67 @@ impl Tasker {
         task.time = self.cmd.get("time").cloned();
     }
 
+    fn format<T: std::fmt::Display>(n: T, l: u16) -> String {
+        format!("|{n:^l$}", n = n, l = l as usize)
+    }
+
+    fn task_to_meta(task: &Task, meta: &mut Meta) {
+        let lid: u16 = task.id.checked_ilog10().unwrap() as u16 + 1;
+
+        meta.id = if lid > meta.id { lid } else { meta.id };
+        meta.name = if task.name.len() as u16 > meta.name {
+            task.name.len() as u16
+        } else {
+            meta.name
+        };
+
+        meta.date = if let Some(s_) = &task.date {
+            if s_.len() as u16 > meta.date {
+                s_.len() as u16
+            } else {
+                meta.date
+            }
+        } else {
+            meta.date
+        };
+        meta.time = if let Some(s_) = &task.time {
+            if s_.len() as u16 > meta.time {
+                s_.len() as u16
+            } else {
+                meta.time
+            }
+        } else {
+            meta.time
+        };
+        meta.status = if let Some(s_) = &task.status {
+            if s_.len() as u16 > meta.status {
+                s_.len() as u16
+            } else {
+                meta.status
+            }
+        } else {
+            meta.status
+        };
+    }
+
     fn string_to_task(line: &str) -> Task {
         let mut task = Task::default();
 
         line.split(WORD_SEPERATOR).for_each(|x| {
             if x.starts_with("@") {
-                task.id = x.parse().unwrap();
+                task.id = x.strip_prefix("@").unwrap().parse().unwrap();
             } else if x.starts_with("d:") {
-                task.date = Some(x.to_string());
+                task.date = Some(x.strip_prefix("d:").unwrap().to_string());
             } else if x.starts_with("t:") {
-                task.time = Some(x.to_string());
+                task.time = Some(x.strip_prefix("t:").unwrap().to_string());
             } else if x.starts_with("s:") {
-                task.status = Some(x.to_string());
+                task.status = Some(x.strip_prefix("s:").unwrap().to_string());
             } else if x.starts_with("n:") {
-                task.name = x.to_string();
+                task.name = x.strip_prefix("n:").unwrap().to_string();
             }
         });
+
+        println!("Task: {task:#?}");
 
         task
     }
@@ -218,5 +353,36 @@ impl Tasker {
             line.push_str("s:TODO");
         }
         line
+    }
+
+    fn meta_to_string(meta: &Meta) -> String {
+        let line = format!(
+            "i:{},n:{},d:{},t:{},s:{}",
+            meta.id, meta.name, meta.time, meta.date, meta.status
+        );
+
+        line
+    }
+
+    fn string_to_meta(line: String) -> Meta {
+        let mut meta = Meta::new();
+
+        line.split(",").for_each(|x| {
+            if x.starts_with("i:") {
+                meta.id = x.strip_prefix("i:").unwrap().parse().unwrap();
+            } else if x.starts_with("n:") {
+                meta.name = x.strip_prefix("n:").unwrap().parse().unwrap();
+            } else if x.starts_with("d:") {
+                meta.date = x.strip_prefix("d:").unwrap().parse().unwrap();
+            } else if x.starts_with("t:") {
+                meta.time = x.strip_prefix("t:").unwrap().parse().unwrap();
+            } else if x.starts_with("s:") {
+                meta.status = x.strip_prefix("s:").unwrap().parse().unwrap();
+            }
+        });
+
+        println!("Meta: {meta:#?}");
+
+        meta
     }
 }
