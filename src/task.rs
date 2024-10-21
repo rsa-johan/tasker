@@ -74,12 +74,11 @@ impl Tasker {
         self.cmd
             .arg("name".into(), Some("n".into()))
             .arg("time".into(), Some("t".into()))
-            .arg("day".into(), Some("d".into()))
+            .arg("date".into(), Some("d".into()))
             .arg("status".into(), Some("s".into()))
             .parse();
 
         self.command = self.cmd.args.get(1).unwrap().to_string();
-        println!("{:#?}", self.command);
         self
     }
 
@@ -142,7 +141,6 @@ impl Tasker {
         self.write_meta(&meta)?;
 
         let mut task_list = self.get_task_list()?;
-        println!("Before: {:#?}", task_list);
         task_list.iter_mut().for_each(|x| {
             if x.id == task.id {
                 if task.name.len() > 0 {
@@ -153,8 +151,6 @@ impl Tasker {
                 x.time = task.time.to_owned();
             }
         });
-
-        println!("After: {:#?}", task_list);
 
         task_list.iter().for_each(|x| {
             let s = Tasker::task_to_string(&x);
@@ -181,11 +177,8 @@ impl Tasker {
         let date_header = Tasker::format("date", meta.date);
 
         println!(
-            "{:#?}",
-            format!(
-                "{}{}{}{}{}|",
-                id_header, name_header, date_header, time_header, status_header
-            )
+            "{}{}{}{}{}|",
+            id_header, name_header, date_header, time_header, status_header
         );
 
         let tasks: Vec<Task> = content
@@ -221,7 +214,7 @@ impl Tasker {
                 },
                 meta.date,
             );
-            println!("{}{}{}{}{}", id, name, date, time, status);
+            println!("{}{}{}{}{}|", id, name, date, time, status);
         }
 
         Ok(())
@@ -257,7 +250,6 @@ impl Tasker {
 
     fn get_task(&self, task: &mut Task) {
         if let Some(name) = self.cmd.get("name") {
-            println!("Name: {}", name);
             task.name = name.to_owned();
         }
         if let Some(id) = self.cmd.get("id") {
@@ -269,7 +261,7 @@ impl Tasker {
         task.time = self.cmd.get("time").cloned();
     }
 
-    fn format<T: std::fmt::Display>(n: T, l: u16) -> String {
+    fn format<T: std::fmt::Display + std::fmt::Debug>(n: T, l: u16) -> String {
         format!("|{n:^l$}", n = n, l = l as usize)
     }
 
@@ -329,8 +321,6 @@ impl Tasker {
             }
         });
 
-        println!("Task: {task:#?}");
-
         task
     }
 
@@ -358,7 +348,7 @@ impl Tasker {
     fn meta_to_string(meta: &Meta) -> String {
         let line = format!(
             "i:{},n:{},d:{},t:{},s:{}",
-            meta.id, meta.name, meta.time, meta.date, meta.status
+            meta.id, meta.name, meta.date, meta.time, meta.status
         );
 
         line
@@ -380,8 +370,6 @@ impl Tasker {
                 meta.status = x.strip_prefix("s:").unwrap().parse().unwrap();
             }
         });
-
-        println!("Meta: {meta:#?}");
 
         meta
     }
