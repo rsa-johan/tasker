@@ -76,6 +76,8 @@ impl Tasker {
             .arg("time".into(), Some("t".into()))
             .arg("date".into(), Some("d".into()))
             .arg("status".into(), Some("s".into()))
+            .arg("id".into(), Some("i".into()))
+            .arg("all".into(), None)
             .parse();
 
         self.command = self.cmd.args.get(1).unwrap().to_string();
@@ -87,6 +89,7 @@ impl Tasker {
             "add" => self.add(),
             "set" => self.set(),
             "list" => self.list(),
+            "clear" => self.clear(),
             _ => panic!("Unknown command!"),
         }
     }
@@ -101,7 +104,7 @@ impl Tasker {
                 .filter(|x| x.len() > 0)
                 .map(|x| Tasker::string_to_task(x))
                 .collect();
-
+        } else {
             self.write_meta(&Meta::new())?;
         }
 
@@ -137,8 +140,6 @@ impl Tasker {
 
         self.get_task(&mut task);
         let mut meta = self.read_meta()?;
-        Tasker::task_to_meta(&task, &mut meta);
-        self.write_meta(&meta)?;
 
         let mut task_list = self.get_task_list()?;
         task_list.iter_mut().for_each(|x| {
@@ -149,12 +150,17 @@ impl Tasker {
                 x.status = task.status.to_owned();
                 x.date = task.date.to_owned();
                 x.time = task.time.to_owned();
+                let cmp_meta = Tasker::task_vs_task_to_meta(&task, x);
+                Tasker::meta_vs_meta_to_meta(&mut meta, &cmp_meta);
             }
         });
+
+        self.write_meta(&meta)?;
 
         task_list.iter().for_each(|x| {
             let s = Tasker::task_to_string(&x);
             content.push_str(s.as_str());
+            content.push_str(LINE_SEPERATOR);
         });
 
         fs::write(path, content)?;
@@ -220,6 +226,34 @@ impl Tasker {
         Ok(())
     }
 
+    fn clear(&self) -> Result<(), std::io::Error> {
+        let fcontent = fs::read_to_string(&self.path)?;
+        let mut content = String::new();
+        let mut tasks: Vec<Task> = fcontent
+            .split(LINE_SEPERATOR)
+            .filter(|x| x.len() > 1)
+            .map(|x| Tasker::string_to_task(&x))
+            .collect();
+
+        if let Some(_) = self.cmd.get("all") {
+            tasks.clear();
+            fs::write(&self.path, "")?;
+            self.write_meta(&Meta::new())?;
+            return Ok(());
+        }
+
+        tasks.iter().for_each(|x| {
+            if x.id == self.cmd.get("id").unwrap().parse().unwrap() {
+                return;
+            }
+            let s = Tasker::task_to_string(&x);
+            content.push_str(s.as_str());
+            content.push_str(LINE_SEPERATOR);
+        });
+
+        fs::write(&self.path, content)
+    }
+
     fn read_meta(&self) -> Result<Meta, std::io::Error> {
         let content = fs::read_to_string(&self.meta_path)?;
         Ok(Tasker::string_to_meta(content))
@@ -233,7 +267,7 @@ impl Tasker {
 
     fn get_task_list(&self) -> Result<Vec<Task>, std::io::Error> {
         let path = Path::new(&self.path);
-        fs::File::create_new(path).unwrap();
+        let _ = fs::File::create_new(path);
 
         let content = fs::read_to_string(path)?;
         let mut task_list: Vec<Task> = Vec::new();
@@ -241,6 +275,7 @@ impl Tasker {
         if content.len() > 0 {
             task_list = content
                 .split(LINE_SEPERATOR)
+                .filter(|x| x.len() > 1)
                 .map(|x| Tasker::string_to_task(x))
                 .collect();
         }
@@ -265,18 +300,110 @@ impl Tasker {
         format!("|{n:^l$}", n = n, l = l as usize)
     }
 
+    fn task_vs_task_to_meta(task: &Task, a_task: &Task) -> Meta {
+        let mut meta = Meta::new();
+
+        let tid_1 = task.id.checked_ilog10().unwrap() as u16 + 1u16;
+        let tid_2 = a_task.id.checked_ilog10().unwrap() as u16 + 1u16;
+
+        meta.id = if tid_1 >= tid_2 { tid_1 } else { tid_2 };
+
+        meta.name = if task.name.len() >= a_task.name.len() {
+            task.name.len() as u16
+        } else {
+            a_task.name.len() as u16
+        };
+
+        meta.date = if let Some(s_) = &task.date {
+            if let Some(a_s_) = &a_task.date {
+                if s_.len() as u16 >= a_s_.len() as u16 {
+                    s_.len() as u16
+                } else {
+                    a_s_.len() as u16
+                }
+            } else {
+                s_.len() as u16
+            }
+        } else if let Some(a_s_) = &a_task.date {
+            a_s_.len() as u16
+        } else {
+            0u16
+        };
+
+        meta.time = if let Some(s_) = &task.time {
+            if let Some(a_s_) = &a_task.time {
+                if s_.len() as u16 >= a_s_.len() as u16 {
+                    s_.len() as u16
+                } else {
+                    a_s_.len() as u16
+                }
+            } else {
+                s_.len() as u16
+            }
+        } else if let Some(a_s_) = &a_task.time {
+            a_s_.len() as u16
+        } else {
+            0u16
+        };
+
+        meta.status = if let Some(s_) = &task.status {
+            if let Some(a_s_) = &a_task.status {
+                if s_.len() as u16 >= a_s_.len() as u16 {
+                    s_.len() as u16
+                } else {
+                    a_s_.len() as u16
+                }
+            } else {
+                s_.len() as u16
+            }
+        } else if let Some(a_s_) = &a_task.status {
+            a_s_.len() as u16
+        } else {
+            0u16
+        };
+
+        meta
+    }
+
+    fn meta_vs_meta_to_meta(meta: &mut Meta, a_meta: &Meta) {
+        meta.id = if meta.id >= a_meta.id {
+            meta.id
+        } else {
+            a_meta.id
+        };
+        meta.name = if meta.name >= a_meta.name {
+            meta.name
+        } else {
+            a_meta.name
+        };
+        meta.status = if meta.status >= a_meta.status {
+            meta.status
+        } else {
+            a_meta.status
+        };
+        meta.date = if meta.date >= a_meta.date {
+            meta.date
+        } else {
+            a_meta.date
+        };
+        meta.time = if meta.time >= a_meta.time {
+            meta.time
+        } else {
+            a_meta.time
+        };
+    }
+
     fn task_to_meta(task: &Task, meta: &mut Meta) {
         let lid: u16 = task.id.checked_ilog10().unwrap() as u16 + 1;
-
-        meta.id = if lid > meta.id { lid } else { meta.id };
-        meta.name = if task.name.len() as u16 > meta.name {
+        meta.id = if lid >= meta.id { lid } else { meta.id };
+        meta.name = if task.name.len() as u16 >= meta.name {
             task.name.len() as u16
         } else {
             meta.name
         };
 
         meta.date = if let Some(s_) = &task.date {
-            if s_.len() as u16 > meta.date {
+            if s_.len() as u16 >= meta.date {
                 s_.len() as u16
             } else {
                 meta.date
@@ -285,7 +412,7 @@ impl Tasker {
             meta.date
         };
         meta.time = if let Some(s_) = &task.time {
-            if s_.len() as u16 > meta.time {
+            if s_.len() as u16 >= meta.time {
                 s_.len() as u16
             } else {
                 meta.time
@@ -294,7 +421,7 @@ impl Tasker {
             meta.time
         };
         meta.status = if let Some(s_) = &task.status {
-            if s_.len() as u16 > meta.status {
+            if s_.len() as u16 >= meta.status {
                 s_.len() as u16
             } else {
                 meta.status

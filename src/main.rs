@@ -1,5 +1,5 @@
 //tasker
-use tasker::task::Tasker;
+use task::task::Tasker;
 
 fn main() -> Result<(), std::io::Error> {
     let mut tasker = Tasker::new();
