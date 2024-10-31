@@ -163,7 +163,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tasker"
+name = "task"
 version = "0.1.0"
 dependencies = [
  "chrono",
