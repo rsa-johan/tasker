@@ -147,9 +147,15 @@ impl Tasker {
                 if task.name.len() > 0 {
                     x.name = task.name.clone();
                 }
-                x.status = task.status.to_owned();
-                x.date = task.date.to_owned();
-                x.time = task.time.to_owned();
+                if let Some(_) = task.status {
+                    x.status = task.status.to_owned();
+                }
+                if let Some(_) = task.time {
+                    x.time = task.time.to_owned();
+                }
+                if let Some(_) = task.date {
+                    x.date = task.date.to_owned();
+                }
                 let cmp_meta = Tasker::task_vs_task_to_meta(&task, x);
                 Tasker::meta_vs_meta_to_meta(&mut meta, &cmp_meta);
             }
